@@ -12,6 +12,25 @@
 <body>
 <canvas id="game" width="360" height="640"></canvas>
 <script>
+// Telegram Game API
+let tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.expand();
+  tg.ready();
+}
+
+const scoreEl = document.createElement('div');
+scoreEl.style.position = 'fixed';
+scoreEl.style.top = '10px';
+scoreEl.style.left = '10px';
+scoreEl.style.color = 'white';
+scoreEl.style.fontSize = '20px';
+scoreEl.innerText = 'Score: 0';
+document.body.appendChild(scoreEl);
+
+let score = 0;
+let currentLevel = 0;
+
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
@@ -24,14 +43,57 @@ const mario = {
   w: 32,
   h: 40,
   vy: 0,
-  onGround: true
+  onGround: true,
+  frame: 0,
+  frames: 4
 };
 
-let platforms = [
-  { x: 0, y: groundY, w: 1000, h: 80 },
-  { x: 200, y: 450, w: 120, h: 20 },
-  { x: 380, y: 380, w: 120, h: 20 }
+const marioImg = new Image();
+marioImg.src = '/mnt/data/A_sprite_sheet_of_a_cartoon_miner_character_is_dis.png';
+
+// Уровни с платформами, врагами и целью
+const levels = [
+  {
+    length: 1000,
+    platforms: [
+      { x: 0, y: groundY, w: 1000, h: 80 },
+      { x: 200, y: 450, w: 120, h: 20 },
+      { x: 380, y: 380, w: 120, h: 20 }
+    ],
+    enemies: [
+      { x: 300, y: groundY - 30, w: 30, h: 30, vx: -1, type: 'slime', frame: 0, frames: 2 },
+      { x: 600, y: groundY - 30, w: 30, h: 30, vx: -2, type: 'bat', frame: 0, frames: 2 }
+    ]
+  },
+  {
+    length: 1400,
+    platforms: [
+      { x: 0, y: groundY, w: 1200, h: 80 },
+      { x: 150, y: 500, w: 100, h: 20 },
+      { x: 350, y: 440, w: 120, h: 20 },
+      { x: 550, y: 380, w: 120, h: 20 },
+      { x: 800, y: 320, w: 150, h: 20 },
+      { x: 1100, y: 400, w: 120, h: 20 }
+    ],
+    enemies: [
+      { x: 300, y: groundY - 30, w: 30, h: 30, vx: -1.2, type: 'slime', frame: 0, frames: 2 },
+      { x: 600, y: groundY - 30, w: 30, h: 30, vx: -2, type: 'bat', frame: 0, frames: 2 },
+      { x: 900, y: groundY - 30, w: 30, h: 30, vx: -1.5, type: 'slime', frame: 0, frames: 2 },
+      { x: 1200, y: groundY - 30, w: 30, h: 30, vx: -2, type: 'bat', frame: 0, frames: 2 }
+    ]
+  }
 ];
+
+let platforms = levels[currentLevel].platforms;
+let enemies = levels[currentLevel].enemies;
+let levelLength = levels[currentLevel].length;
+
+const enemyImgs = {
+  slime: new Image(),
+  bat: new Image()
+};
+enemyImgs.slime.src = '/mnt/data/slime_sprite.png';
+enemyImgs.bat.src = '/mnt/data/bat_sprite.png';
 
 let offsetX = 0;
 
@@ -66,21 +128,77 @@ function update() {
     }
   });
 
-  offsetX += 2; // движение вперёд
+  offsetX += 2 + currentLevel * 0.5; // увеличение скорости с каждым уровнем
+  score++;
+  scoreEl.innerText = 'Score: ' + score;
+
+  if (tg && score % 100 === 0) {
+    tg.sendData(JSON.stringify({ score }));
+  }
+
+  enemies.forEach(e => {
+    e.x += e.vx;
+    e.frame += 0.1;
+    if (e.frame >= e.frames) e.frame = 0;
+
+    if (e.x + e.w < offsetX) {
+      e.x += levelLength; // перезапуск врага после ухода с экрана
+    }
+
+    if (
+      mario.x < e.x + e.w - offsetX &&
+      mario.x + mario.w > e.x - offsetX &&
+      mario.y + mario.h > e.y &&
+      mario.y < e.y + e.h
+    ) {
+      score = 0;
+      mario.x = 50;
+      offsetX = 0;
+    }
+  });
+
+  // проверка достижения финиша
+  if (offsetX >= levelLength - 50) {
+    currentLevel = (currentLevel + 1) % levels.length;
+    platforms = levels[currentLevel].platforms;
+    enemies = levels[currentLevel].enemies;
+    levelLength = levels[currentLevel].length;
+    offsetX = 0;
+  }
+
+  mario.frame += 0.2;
+  if (mario.frame >= mario.frames) mario.frame = 0;
 }
 
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // Марио
-  ctx.fillStyle = 'red';
-  ctx.fillRect(mario.x, mario.y, mario.w, mario.h);
+  ctx.drawImage(
+    marioImg,
+    Math.floor(mario.frame) * 32, 0, 32, 40,
+    mario.x, mario.y, mario.w, mario.h
+  );
 
   // Платформы
   ctx.fillStyle = 'green';
   platforms.forEach(p => {
     ctx.fillRect(p.x - offsetX, p.y, p.w, p.h);
   });
+
+  // Враги
+  enemies.forEach(e => {
+    const img = enemyImgs[e.type];
+    ctx.drawImage(
+      img,
+      Math.floor(e.frame) * e.w, 0, e.w, e.h,
+      e.x - offsetX, e.y, e.w, e.h
+    );
+  });
+
+  // Финиш уровня
+  ctx.fillStyle = 'gold';
+  ctx.fillRect(levelLength - offsetX - 20, groundY - 60, 20, 60);
 }
 
 function loop() {
